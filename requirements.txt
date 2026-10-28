@@ -1,0 +1,4 @@
+markdown>=3.5
+
+# 可选：显著提升 Markdown -> PDF 的排版质量（不装则自动回退 Chromium / LibreOffice）
+# weasyprint>=60

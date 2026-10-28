@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# 生成产物
+examples/out/
+test_output/
+*.pdf
+!examples/**/*.pdf
+
+# 本地测试素材（按需保留）
+test_input/
+
+# JVM / 崩溃日志
+hs_err_pid*.log
+replay_pid*.log
+
+# 环境 / 编辑器
+.Trash-*
+.workbuddy/
+.idea/
+.vscode/
+.DS_Store
