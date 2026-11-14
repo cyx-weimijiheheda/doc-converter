@@ -1,0 +1,229 @@
+name: convert
+
+# 由 Pages 页面通过 repository_dispatch(event_type=convert) 触发，
+# 也可在 Actions 页手动 Run workflow（输入 inbox 下的作业目录）。
+on:
+  repository_dispatch:
+    types: [convert]
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "inbox 下的作业目录名（如 20261114-2301-ab12cd）"
+        required: true
+        type: string
+      mode:
+        description: "转换模式"
+        required: false
+        default: text
+        type: choice
+        options: [text, image]
+      dpi:
+        description: "图片型 DPI"
+        required: false
+        default: "150"
+        type: string
+      branch:
+        description: "提交回写分支"
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: convert-${{ github.event.client_payload.job || inputs.job }}
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Resolve parameters
+        id: p
+        env:
+          CB_JOB: ${{ github.event.client_payload.job }}
+          CB_MODE: ${{ github.event.client_payload.mode }}
+          CB_DPI: ${{ github.event.client_payload.dpi }}
+          CB_BRANCH: ${{ github.event.client_payload.branch }}
+          IN_JOB: ${{ inputs.job }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_DPI: ${{ inputs.dpi }}
+          IN_BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          JOB="${CB_JOB:-${IN_JOB:-}}"
+          MODE="${CB_MODE:-${IN_MODE:-text}}"
+          DPI="${CB_DPI:-${IN_DPI:-150}}"
+          BRANCH="${CB_BRANCH:-${IN_BRANCH:-main}}"
+          if [ -z "$JOB" ]; then JOB="manual-$(date -u +%Y%m%d-%H%M%S)"; fi
+          # 目录名白名单校验，避免路径穿越
+          if ! printf '%s' "$JOB" | grep -Eq '^[A-Za-z0-9._-]{1,64}$'; then
+            echo "::error::非法作业目录名: $JOB"; exit 1
+          fi
+          if [ "$MODE" != "image" ]; then MODE="text"; fi
+          case "$DPI" in ''|*[!0-9]*) DPI=150 ;; esac
+          if [ "$DPI" -lt 60 ] || [ "$DPI" -gt 600 ]; then DPI=150; fi
+          {
+            echo "job=$JOB"
+            echo "mode=$MODE"
+            echo "dpi=$DPI"
+            echo "branch=$BRANCH"
+          } >> "$GITHUB_OUTPUT"
+          echo "作业: $JOB | 模式: $MODE | DPI: $DPI | 分支: $BRANCH"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.p.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Install LibreOffice + poppler + 中文字体
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libreoffice-writer libreoffice-calc libreoffice-impress \
+            poppler-utils fonts-noto-cjk fonts-noto-cjk-extra fonts-wqy-zenhei
+          soffice --version || libreoffice --version
+
+      - name: Install Python deps
+        run: python3 -m pip install --upgrade pip img2pdf
+
+      - name: Prepare status (running)
+        env:
+          JOB: ${{ steps.p.outputs.job }}
+        run: |
+          python3 - "$JOB" <<'PY'
+          import json, os, sys, time
+          job = sys.argv[1]
+          d = os.path.join("outbox", job)
+          os.makedirs(d, exist_ok=True)
+          with open(os.path.join(d, "_status.json"), "w", encoding="utf-8") as f:
+              json.dump({"job": job, "state": "running",
+                         "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                        f, ensure_ascii=False, indent=2)
+          PY
+
+      - name: Convert
+        id: conv
+        env:
+          JOB: ${{ steps.p.outputs.job }}
+          MODE: ${{ steps.p.outputs.mode }}
+          DPI: ${{ steps.p.outputs.dpi }}
+        run: |
+          set -o pipefail
+          IN="inbox/$JOB"
+          OUT="outbox/$JOB"
+          mkdir -p "$OUT"
+          shopt -s nullglob
+          files=("$IN"/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::inbox/$JOB 为空，没有可转换的文件"
+            exit 1
+          fi
+          ARGS=("$IN" -o "$OUT" --overwrite --json)
+          if [ "$MODE" = "image" ]; then ARGS+=(--image --dpi "$DPI"); fi
+          echo "python office2pdf.py ${ARGS[*]}"
+          set +e
+          python3 office2pdf.py "${ARGS[@]}" | tee result.json
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          # 转换失败也继续，以便把部分结果与状态写回
+          exit 0
+
+      - name: Write status + manifest
+        env:
+          JOB: ${{ steps.p.outputs.job }}
+          MODE: ${{ steps.p.outputs.mode }}
+          DPI: ${{ steps.p.outputs.dpi }}
+          CONV_EXIT: ${{ steps.conv.outputs.exit }}
+        run: |
+          python3 - "$JOB" "$MODE" "$DPI" <<'PY'
+          import json, os, sys, time
+          job, mode, dpi = sys.argv[1], sys.argv[2], sys.argv[3]
+          out_dir = os.path.join("outbox", job)
+          os.makedirs(out_dir, exist_ok=True)
+          try:
+              with open("result.json", encoding="utf-8") as f:
+                  result = json.load(f)
+          except Exception:
+              result = {"results": [], "ok": 0, "failed": 0, "skipped": 0}
+
+          files = []
+          for r in result.get("results", []):
+              name = os.path.basename(r["output"]) if r.get("output") else ""
+              files.append({
+                  "input": os.path.basename(r["input"]),
+                  "output": name,
+                  "status": r.get("status"),
+                  "pages": r.get("pages"),
+                  "size": r.get("size"),
+                  "note": r.get("note", ""),
+                  "duration": r.get("duration", 0),
+              })
+          status = {
+              "job": job,
+              "state": "done",
+              "mode": mode,
+              "dpi": int(dpi) if str(dpi).isdigit() else 150,
+              "finished": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "ok": result.get("ok", 0),
+              "skipped": result.get("skipped", 0),
+              "failed": result.get("failed", 0),
+              "files": files,
+              "run": {
+                  "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              },
+          }
+          # 页面以 outbox/<job>/_status.json 出现且 state=done 作为完成信号
+          with open(os.path.join(out_dir, "_status.json"), "w", encoding="utf-8") as f:
+              json.dump(status, f, ensure_ascii=False, indent=2)
+          with open(os.path.join(out_dir, "result.json"), "w", encoding="utf-8") as f:
+              json.dump(result, f, ensure_ascii=False, indent=2)
+          print(json.dumps(status, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Commit results
+        env:
+          JOB: ${{ steps.p.outputs.job }}
+          BRANCH: ${{ steps.p.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "office2pdf-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # .gitignore 忽略了 *.pdf，这里必须强制加入
+          git add -f "outbox/$JOB"
+          if git diff --cached --quiet; then
+            echo "没有可提交的结果"
+          else
+            git commit -m "convert: $JOB"
+            git push origin "HEAD:$BRANCH"
+          fi
+
+      - name: Job summary
+        if: always()
+        env:
+          JOB: ${{ steps.p.outputs.job }}
+        run: |
+          {
+            echo "### Office2PDF 转换结果"
+            echo ""
+            echo "- 作业：\`$JOB\`"
+            echo "- 模式：${{ steps.p.outputs.mode }}（dpi=${{ steps.p.outputs.dpi }}）"
+            echo "- 退出码：${{ steps.conv.outputs.exit }}"
+            echo ""
+            if [ -f "outbox/$JOB/_status.json" ]; then
+              echo '```json'
+              cat "outbox/$JOB/_status.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on conversion error
+        if: steps.conv.outputs.exit != '0'
+        run: |
+          echo "::error::部分文件转换失败，详见 outbox 下的 _status.json"
+          exit 1

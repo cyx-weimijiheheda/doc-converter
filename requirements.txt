@@ -2,3 +2,6 @@ markdown>=3.5
 
 # 可选：显著提升 Markdown -> PDF 的排版质量（不装则自动回退 Chromium / LibreOffice）
 # weasyprint>=60
+
+# 可选：office2pdf.py 的图片型 PDF 打包（不装则回退 Pillow）
+# img2pdf>=0.5

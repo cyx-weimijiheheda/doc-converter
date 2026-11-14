@@ -15,6 +15,8 @@ test_output/
 
 # 本地测试素材（按需保留）
 test_input/
+input/
+output/
 
 # JVM / 崩溃日志
 hs_err_pid*.log

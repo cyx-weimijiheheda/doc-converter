@@ -107,14 +107,49 @@ Office 文档则直接由 LibreOffice 转 HTML / PDF，保真度最高。
 python office2pdf.py report.docx                       # Office → 文本型 PDF
 python office2pdf.py slides.pptx --image --dpi 200     # Office → 图片型 PDF
 python office2pdf.py doc.pdf --dpi 300                 # 文本型 PDF → 图片型 PDF
+python office2pdf.py notes.md                          # Markdown → PDF
 python office2pdf.py ./docs -r -o out/                 # 批量递归
+python office2pdf.py ./docs -o out --json              # 机器可读结果
 python office2pdf.py --check                           # 环境检查
 ```
 
 - **文本型 PDF**：可选中、可搜索、体积小（LibreOffice headless）
 - **图片型 PDF**：每页栅格化后打包，不可选中文字、版式 100% 一致（poppler + img2pdf）
+- **输出显示**：彩色状态行、逐文件耗时/体积/页数、结尾汇总与失败清单，CJK 按双宽对齐
 
-图片型 PDF 额外依赖：`poppler-utils`（`pdftoppm`）与 `img2pdf`（或 Pillow 兜底）。
+图片型 PDF 额外依赖：`poppler-utils`（`pdftoppm`、`pdfinfo`）与 `img2pdf`（或 Pillow 兜底）。
+
+| 参数 | 说明 |
+|---|---|
+| `-o, --outdir` | 输出目录，默认与源文件同目录 |
+| `-r, --recursive` | 递归处理目录 |
+| `--image` | Office → 图片型 PDF（PDF 输入自动图片化，无需此标志） |
+| `--dpi` | 图片型分辨率，默认 150 |
+| `--img-format` | 栅格化格式：`png`（默认）/`jpg`/`jpeg`/`tiff`/`ppm` |
+| `--overwrite` | 覆盖已存在的同名 PDF（默认跳过） |
+| `--timeout` | 单文件超时秒数，默认 600 |
+| `--soffice` | 显式指定 soffice 路径 |
+| `-v, --verbose` | 输出完整输入路径等细节 |
+| `-q, --quiet` | 只输出错误与最终统计 |
+| `--json` | 纯 JSON 结果（此时不打印人读表格） |
+| `--no-color` / `--no-progress` | 关闭颜色 / 动态进度（日志、CI 友好） |
+| `-c, --check` | 环境自检 |
+
+颜色与进度会自动判定：`NO_COLOR`、`FORCE_COLOR`、`TERM=dumb`、是否 TTY 均生效；输出被重定向或管道时退化为纯文本行。
+
+```
+Office2PDF  4 个文件 · Office→文本型 + Markdown→PDF
+────────────────────────────────────────────────────────────────────
+✓ [1/4] 测试文档.docx                 →  测试文档.pdf  1 页 · 54.2 KB · 1.5s
+✓ [2/4] 演示文稿.pptx                 →  演示文稿.pdf  2 页 · 20.9 KB · 527ms
+✓ [3/4] 表格.xlsx                     →  表格.pdf  2 页 · 26.6 KB · 1.4s
+↷ [4/4] 测试文档.md                   →  测试文档.pdf  跳过：输出已存在，用 --overwrite 覆盖
+────────────────────────────────────────────────────────────────────
+汇总  成功 3 · 跳过 1 · 失败 0
+      总耗时 3.5s · 产出 101.7 KB · 平均 866ms/个
+```
+
+退出码：全部成功 `0`，有失败 `1`，参数/输入错误 `2`。
 
 ### upgrade_libreoffice.sh —— 修复老 PPT 转换崩溃
 
@@ -128,15 +163,59 @@ bash upgrade_libreoffice.sh --clean-only # 只清理
 
 升级路径：先试 `dnf` 仓库 → 不够则下载官方 RPM 包、本地提取、在 `/usr/local/bin` 生成 `soffice` 包装脚本。
 
+## 可视化批量转换（GitHub Pages）
+
+仓库自带一个静态页面 `docs/index.html`：拖进文件、选模式、点一下，就能在 GitHub Actions 的 Ubuntu 机器上用真实 LibreOffice 批量转换并下载 PDF。
+
+**Pages 本身能不能直接转换？不能。** GitHub Pages 只发 HTML/CSS/JS，没有能执行 `soffice` 的后端进程，浏览器里也没有可用的 LibreOffice WASM 全功能构建——纯前端转 docx 排版必然走样。所以这里采用「Pages 当门面 + Actions 当后端」：
+
+```
+浏览器 (Pages 静态页)
+  │  ① 用你的 token 把文件 PUT 到仓库 inbox/<job>/
+  │  ② POST /dispatches 触发 convert 工作流
+  ▼
+GitHub Actions (ubuntu-latest + 真实 LibreOffice)
+  │  ③ office2pdf.py 转换 → 提交 outbox/<job>/
+  ▼
+浏览器 ④ 轮询 outbox/<job>/_status.json → 逐个下载 PDF
+```
+
+### 启用步骤
+
+1. 推到 GitHub，默认分支为 `main`（`repository_dispatch` 只监听默认分支上的工作流）。
+2. **Settings → Pages → Build and deployment → Source 选 `GitHub Actions`**。
+3. 跑一次 `pages` 工作流（推送改动到 `docs/**` 时自动触发），得到 `https://<owner>.github.io/doc-converter/`。
+4. 打开页面填 `owner` / `repo` / `branch`（项目站点会自动猜）与 Personal Access Token：
+   - 经典 token：勾 `repo` + `workflow`
+   - 细粒度 token：`Contents: Read and write`、`Actions: Read and write`
+5. 选文件 → 选模式（文本型 / 图片型 + DPI）→ **开始转换**，通常 1–3 分钟。
+
+### 限制（照实说）
+
+| 限制 | 数值 / 原因 |
+|---|---|
+| 单文件大小 | 页面硬限制 20 MB（Contents API 上限 100 MB，浏览器 base64 再膨胀 1.33 倍） |
+| 单次作业时长 | 60 分钟超时（`convert.yml` 的 `timeout-minutes`） |
+| 并发 | 同一 `job` 串行、不同 `job` 并行 |
+| 私有仓库 | 消耗 Actions 分钟数；Pages 可见性取决于套餐 |
+| 结果留存 | PDF 会提交进 `outbox/`，长期使用需定期清理旧作业目录 |
+| 安全 | token 只存在浏览器 localStorage，可一键清除；页面不经过第三方服务器 |
+
+要给「不用填 token 的人」用，就需要真后端：把 `office2pdf.py` 套一层 FastAPI，Dockerfile 里 `apt install libreoffice poppler-utils`，部署到 Hugging Face Spaces / Fly.io / Render，或自建 VPS 反代并加限流。
+
 ## 目录结构
 
 ```
-doc2htmlpdf/
-├── doc2htmlpdf.py        # 主工具：md/office → html/pdf
-├── office2pdf.py         # Office/PDF → PDF（含图片型）
-├── upgrade_libreoffice.sh# LibreOffice 升级脚本
+doc-converter/
+├── doc2htmlpdf.py         # 主工具：md/office → html/pdf
+├── office2pdf.py          # Office/MD/PDF → PDF（含图片型、CLI 输出渲染）
+├── upgrade_libreoffice.sh # LibreOffice 升级脚本
+├── docs/index.html        # GitHub Pages 可视化批量转换页面
+├── .github/workflows/
+│   ├── pages.yml          # 发布 docs/ 到 Pages
+│   └── convert.yml        # Actions 后端：装 LibreOffice 并批量转换
 ├── examples/
-│   └── sample.md         # 示例 Markdown
+│   └── sample.md          # 示例 Markdown
 ├── requirements.txt
 ├── LICENSE
 └── README.md
