@@ -129,36 +129,58 @@
 
 <header>
   <h1>Office2PDF <span class="tag">可视化批量转换</span></h1>
-  <p>Word / PPT / Excel / Markdown / PDF → PDF。页面本身是静态的，真正的转换在 GitHub Actions 的 Ubuntu 机器上跑 LibreOffice。</p>
+  <p>Word / PPT / Excel / Markdown / PDF → PDF。<b>默认走公开服务：打开就能用，不需要 GitHub 账号、不需要 token。</b></p>
 </header>
 
 <main>
-  <!-- 1. 仓库与授权 -->
+  <!-- 1. 运行方式 -->
   <section class="card">
-    <h2>1 · 仓库与授权</h2>
-    <div class="grid">
-      <label class="field"><span>仓库所有者 owner</span>
-        <input id="owner" type="text" placeholder="your-name" autocomplete="off" />
-      </label>
-      <label class="field"><span>仓库名 repo</span>
-        <input id="repo" type="text" placeholder="Office2PDF" autocomplete="off" />
-      </label>
-      <label class="field"><span>分支 branch</span>
-        <input id="branch" type="text" value="main" autocomplete="off" />
-      </label>
-      <label class="field"><span>Personal Access Token</span>
-        <input id="token" type="password" placeholder="ghp_… / github_pat_…" autocomplete="off" />
-      </label>
+    <h2>1 · 运行方式</h2>
+    <div class="modes" id="runnerTabs">
+      <button data-runner="public" class="active">公开服务（推荐 · 无需 token）</button>
+      <button data-runner="actions">GitHub Actions（需自己的 token）</button>
     </div>
-    <div class="row-inline" style="margin-top:12px">
-      <button class="ghost" id="btnSave">保存配置到本机</button>
-      <button class="ghost" id="btnClear">清除本地配置</button>
-      <span class="hint" id="cfgState"></span>
+
+    <div id="panelPublic" style="margin-top:14px">
+      <label class="field"><span>转换服务地址</span>
+        <input id="apiBase" type="text" placeholder="https://your-space.hf.space" autocomplete="off" />
+      </label>
+      <div class="row-inline" style="margin-top:12px">
+        <button class="ghost" id="btnPing">检查连接</button>
+        <span class="hint" id="apiState">填好后所有访客零配置直接用</span>
+      </div>
+      <div class="hint">
+        这就是为「让所有人都能用」准备的那条路：把 <code>server/</code> 部署成一次（Docker / Hugging Face Space / 自己的 VPS），
+        之后任何人打开本页拖文件即可转换——<b>不用 GitHub 账号，不用 token</b>，文件也只发往你自己部署的这台服务。
+        地址会存进本机 localStorage，也可用 <code>?api=</code> 参数直接带过来。
+      </div>
     </div>
-    <div class="hint">
-      Token 权限：经典 token 勾选 <code>repo</code> + <code>workflow</code>；细粒度 token 给
-      <code>Contents: Read and write</code> + <code>Actions: Read and write</code>。
-      Token 只存在你这个浏览器里（localStorage，可随时清除），不会发往 GitHub 以外的地方。
+
+    <div id="panelActions" class="hidden" style="margin-top:14px">
+      <div class="grid">
+        <label class="field"><span>仓库所有者 owner</span>
+          <input id="owner" type="text" placeholder="your-name" autocomplete="off" />
+        </label>
+        <label class="field"><span>仓库名 repo</span>
+          <input id="repo" type="text" placeholder="doc-converter" autocomplete="off" />
+        </label>
+        <label class="field"><span>分支 branch</span>
+          <input id="branch" type="text" value="main" autocomplete="off" />
+        </label>
+        <label class="field"><span>Personal Access Token</span>
+          <input id="token" type="password" placeholder="ghp_… / github_pat_…" autocomplete="off" />
+        </label>
+      </div>
+      <div class="row-inline" style="margin-top:12px">
+        <button class="ghost" id="btnSave">保存配置到本机</button>
+        <button class="ghost" id="btnClear">清除本地配置</button>
+        <span class="hint" id="cfgState"></span>
+      </div>
+      <div class="hint">
+        这条路不用部署服务，但每个使用者都得自备 token（写权限在你仓库的 <code>inbox/</code>，所以不适合当公共入口）。
+        Token 权限：经典 token 勾 <code>repo</code> + <code>workflow</code>；细粒度 token 给
+        <code>Contents: Read and write</code> + <code>Actions: Read and write</code>。
+      </div>
     </div>
   </section>
 
@@ -168,7 +190,7 @@
     <div id="drop">
       <div><strong>点击选择</strong> 或把文件拖到这里</div>
       <div class="sub">支持 .doc .docx .odt .rtf .ppt .pptx .odp .xls .xlsx .ods .csv .md .pdf — 可多选</div>
-      <div class="sub">单文件建议 ≤ 20 MB（浏览器 + Contents API 双重限制）</div>
+      <div class="sub">单文件上限以服务端配置为准（默认 40 MB），Actions 模式为 20 MB</div>
     </div>
     <input id="picker" type="file" multiple class="hidden"
            accept=".doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.csv,.md,.markdown,.pdf" />
@@ -196,10 +218,9 @@
       <span class="hint" id="runState">选择文件后即可开始</span>
     </div>
     <div class="bar" id="bar"><i></i></div>
-    <div class="note">
-      <b>流程：</b>浏览器用你的 token 把文件提交到仓库的 <code>inbox/&lt;job&gt;/</code> → 触发 <code>convert</code> 工作流 →
-      Actions 里的 LibreOffice 转成 PDF 提交到 <code>outbox/&lt;job&gt;/</code> → 页面轮询完成后直接下载。
-      一次作业通常 1–3 分钟。
+    <div class="note" id="flowNote">
+      <b>流程（公开服务）：</b>文件直接 POST 到你部署的转换服务 → 服务端 LibreOffice 转成 PDF → 浏览器拿回 PDF 并自动下载。
+      不经过 GitHub，不用登录。
     </div>
   </section>
 
@@ -230,13 +251,6 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
-  const state = {
-    files: [],
-    mode: "text",
-    job: null,
-    busy: false,
-    runId: null,
-  };
 
   // ---------------------------------------------------------------- 日志
   function log(msg, cls = "") {
@@ -269,12 +283,18 @@
   }
 
   // ------------------------------------------------------- 配置持久化
-  const CFG_KEY = "office2pdf.cfg.v1";
+  const CFG_KEY = "office2pdf.cfg.v2";
+  // 部署者可以直接把默认服务地址写在这里，访客打开即用
+  const DEFAULT_API = "";
+  const state = { files: [], mode: "text", runner: "public", job: null, busy: false, runId: null, maxFileMB: 20 };
+
   function readCfg() {
     try { return JSON.parse(localStorage.getItem(CFG_KEY) || "{}"); } catch { return {}; }
   }
   function saveCfg() {
     localStorage.setItem(CFG_KEY, JSON.stringify({
+      runner: state.runner,
+      apiBase: $("apiBase").value.trim(),
       owner: $("owner").value.trim(),
       repo: $("repo").value.trim(),
       branch: $("branch").value.trim() || "main",
@@ -284,11 +304,14 @@
   }
   function clearCfg() {
     localStorage.removeItem(CFG_KEY);
+    $("apiBase").value = "";
     $("owner").value = ""; $("repo").value = ""; $("branch").value = "main"; $("token").value = "";
     $("cfgState").textContent = "本地配置已清除";
+    $("apiState").textContent = "配置已清除";
   }
   function cfg() {
     return {
+      apiBase: $("apiBase").value.trim().replace(/\/+$/, ""),
       owner: $("owner").value.trim(),
       repo: $("repo").value.trim(),
       branch: $("branch").value.trim() || "main",
@@ -307,18 +330,176 @@
   function initCfg() {
     const c = readCfg();
     const auto = detectRepo() || {};
+    const fromQuery = new URLSearchParams(location.search).get("api") || "";
+    $("apiBase").value = fromQuery || c.apiBase || DEFAULT_API || "";
     $("owner").value = c.owner || auto.owner || "";
     $("repo").value = c.repo || auto.repo || "";
     $("branch").value = c.branch || "main";
     $("token").value = c.token || "";
     $("cfgState").textContent = c.token ? "已从本机载入配置" : "尚未保存配置";
+    setRunner(c.runner === "actions" ? "actions" : "public");
     updateHomeLinks();
+    if ($("apiBase").value) {
+      $("apiState").textContent = "已配置，正在检查…";
+      pingService(true);
+    } else {
+      markApiMissing();
+    }
   }
   function updateHomeLinks() {
     const c = cfg();
     if (c.owner && c.repo) {
-      const url = `https://github.com/${c.owner}/${c.repo}`;
-      $("repoHome").href = url;
+      $("repoHome").href = `https://github.com/${c.owner}/${c.repo}`;
+    }
+  }
+  function setRunner(runner) {
+    state.runner = runner;
+    const isPublic = runner === "public";
+    $("panelPublic").classList.toggle("hidden", !isPublic);
+    $("panelActions").classList.toggle("hidden", isPublic);
+    [...$("runnerTabs").querySelectorAll("button")].forEach((b) =>
+      b.classList.toggle("active", b.dataset.runner === runner));
+    $("btnClean").classList.toggle("hidden", isPublic);
+    $("flowNote").innerHTML = isPublic
+      ? "<b>流程（公开服务）：</b>文件直接 POST 到你部署的转换服务 → 服务端 LibreOffice 转成 PDF → 浏览器拿回 PDF 并自动下载。不经过 GitHub，不用登录。"
+      : "<b>流程（Actions）：</b>浏览器用你的 token 把文件提交到仓库的 <code>inbox/&lt;job&gt;/</code> → 触发 <code>convert</code> 工作流 → Actions 里转成 PDF 提交到 <code>outbox/&lt;job&gt;/</code> → 页面轮询完成后下载。一次通常 1–3 分钟。";
+    renderFiles();
+  }
+
+  // --------------------------------------------------- 公开服务（无 token）
+  function serviceBase() {
+    const b = $("apiBase").value.trim().replace(/\/+$/, "");
+    if (!b) throw new Error("还没填转换服务地址：先用 server/ 部署一个，地址填到上面（详见 README）");
+    return b;
+  }
+  function markApiMissing() {
+    const repo = cfg().owner && cfg().repo ? `${cfg().owner}/${cfg().repo}` : "cyx-weimijiheheda/doc-converter";
+    $("apiState").style.color = "var(--warn)";
+    $("apiState").innerHTML =
+      '⚠ 还没配置服务地址 —— 先部署 <code>server/</code>（约 1 分钟），' +
+      `<a href="https://github.com/${repo}#可视化批量转换github-pages" target="_blank" rel="noopener">看部署说明</a>`;
+  }
+  async function pingService(silent = false) {
+    const label = $("apiState");
+    try {
+      const base = serviceBase();
+      const res = await fetch(base + "/health", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const info = await res.json();
+      const lo = info.libreoffice ? "LibreOffice 就绪" : "⚠ LibreOffice 缺失";
+      state.maxFileMB = Number(info.max_file_mb) || state.maxFileMB;
+      label.textContent = `已连接 · ${lo} · 单文件 ≤ ${state.maxFileMB} MB`;
+      label.style.color = "var(--ok)";
+      if (!silent) logOk(`服务可用：${base}（${lo}，上限 ${info.max_file_mb} MB）`);
+      return true;
+    } catch (e) {
+      label.textContent = "连接失败：" + (e.message || e);
+      label.style.color = "var(--err)";
+      if (!silent) logErr("服务不可用：" + (e.message || e));
+      return false;
+    }
+  }
+  async function convertViaService(file) {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("mode", state.mode);
+    fd.append("dpi", $("dpi").value);
+    const res = await fetch(serviceBase() + "/api/convert", { method: "POST", body: fd });
+    if (!res.ok) {
+      let detail = "";
+      try { detail = (await res.json()).detail || ""; } catch { /* 非 JSON */ }
+      throw new Error(`转换失败（HTTP ${res.status}）${detail ? "：" + detail : ""}`);
+    }
+    const blob = await res.blob();
+    let name = file.name.replace(/\.[^.]+$/, "") + ".pdf";
+    const cd = res.headers.get("X-Output-Name");
+    if (cd) { try { name = decodeURIComponent(cd); } catch { name = cd; } }
+    return { blob, name, seconds: Number(res.headers.get("X-Convert-Seconds") || 0) };
+  }
+
+  async function runPublic() {
+    if (state.busy) return;
+    if (!state.files.length) { logErr("请先选择文件"); return; }
+    state.busy = true;
+    $("btnRun").disabled = true;
+    $("resultWrap").classList.add("hidden");
+    saveCfg();
+    const total = state.files.length;
+    logInfo(`公开服务模式：${total} 个文件 · ${state.mode === "image" ? "图片型 dpi=" + $("dpi").value : "文本型"}`);
+    setBar(1);
+
+    const rows = [];
+    try {
+      await pingService(true);
+      for (let i = 0; i < total; i++) {
+        const f = state.files[i];
+        log(`[${i + 1}/${total}] 转换 ${f.name}（${humanSize(f.size)}）…`);
+        setBar((i / total) * 100);
+        const t0 = performance.now();
+        try {
+          const { blob, name, seconds } = await convertViaService(f);
+          const secs = seconds || (performance.now() - t0) / 1000;
+          saveBlob(blob, name);
+          rows.push({ input: f.name, output: name, status: "ok", size: blob.size,
+                      seconds: secs, blob });
+          logOk(`[${i + 1}/${total}] ${f.name} → ${name} · ${humanSize(blob.size)} · ${secs.toFixed(2)}s`);
+        } catch (e) {
+          rows.push({ input: f.name, status: "fail", note: e.message || String(e) });
+          logErr(`[${i + 1}/${total}] ${f.name}：${e.message || e}`);
+        }
+        setBar(((i + 1) / total) * 100);
+      }
+      const ok = rows.filter((r) => r.status === "ok").length;
+      const bad = rows.length - ok;
+      if (bad) logWarn(`完成：成功 ${ok} · 失败 ${bad}`);
+      else logOk(`全部完成：成功 ${ok} · 失败 0`);
+      renderPublicResults(rows);
+    } catch (e) {
+      logErr(String(e.message || e));
+    } finally {
+      state.busy = false;
+      $("btnRun").disabled = state.files.length === 0;
+      setTimeout(() => setBar(null), 1200);
+    }
+  }
+
+  function renderPublicResults(rows) {
+    const wrap = $("resultWrap");
+    const body = $("resultBody");
+    body.innerHTML = "";
+    wrap.classList.remove("hidden");
+    $("repoLink").classList.add("hidden");
+    if (!rows.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="5" style="color:#8b9bb0">没有结果</td>`;
+      body.appendChild(tr);
+      return;
+    }
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      const tdName = document.createElement("td");
+      tdName.textContent = r.input;
+      const tdStatus = document.createElement("td");
+      tdStatus.innerHTML = r.status === "ok"
+        ? `<span class="pill ok">成功</span>`
+        : `<span class="pill fail" title="${(r.note || "").replace(/"/g, "&quot;")}">失败</span>`;
+      const tdPages = document.createElement("td");
+      tdPages.className = "num"; tdPages.textContent = "—";
+      const tdSize = document.createElement("td");
+      tdSize.className = "num"; tdSize.textContent = humanSize(r.size);
+      const tdDl = document.createElement("td");
+      if (r.status === "ok" && r.blob) {
+        const btn = document.createElement("button");
+        btn.className = "ghost";
+        btn.style.padding = "4px 10px";
+        btn.textContent = "再下一次";
+        btn.onclick = () => saveBlob(r.blob, r.output);
+        tdDl.appendChild(btn);
+      } else {
+        tdDl.innerHTML = `<span style="color:#8b9bb0">—</span>`;
+      }
+      tr.append(tdName, tdStatus, tdPages, tdSize, tdDl);
+      body.appendChild(tr);
     }
   }
 
@@ -423,7 +604,8 @@
     const allowed = /\.(docx?|odt|rtf|pptx?|odp|xlsx?|ods|csv|md|markdown|pdf)$/i;
     for (const f of list) {
       if (!allowed.test(f.name)) { logWarn(`跳过不支持的文件：${f.name}`); continue; }
-      if (f.size > 20 * 1024 * 1024) { logWarn(`跳过超过 20 MB 的文件：${f.name}（${humanSize(f.size)}）`); continue; }
+      const limitMB = state.runner === "public" ? (state.maxFileMB || 40) : 20;
+      if (f.size > limitMB * 1024 * 1024) { logWarn(`跳过超过 ${limitMB} MB 的文件：${f.name}（${humanSize(f.size)}）`); continue; }
       if (state.files.some((x) => x.name === f.name && x.size === f.size)) continue;
       state.files.push(f);
     }
@@ -529,17 +711,20 @@
     return null;
   }
 
-  async function downloadFile(job, name) {
-    const res = await gh(`/contents/${encPath(`outbox/${job}/${name}`)}`, {
-      raw: true,
-      params: { ref: cfg().branch },
-    });
-    const blob = await res.blob();
+  function saveBlob(blob, name) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+
+  async function downloadFile(job, name) {
+    const res = await gh(`/contents/${encPath(`outbox/${job}/${name}`)}`, {
+      raw: true,
+      params: { ref: cfg().branch },
+    });
+    saveBlob(await res.blob(), name);
   }
 
   function renderResults(job, st) {
@@ -594,6 +779,7 @@
 
   async function run() {
     if (state.busy) return;
+    if (state.runner === "public") return runPublic();
     const c = cfg();
     if (!c.owner || !c.repo) { logErr("请填写 owner 与 repo"); return; }
     if (!c.token) { logErr("请填写 Personal Access Token"); return; }
@@ -659,6 +845,19 @@
   function bind() {
     $("btnSave").onclick = () => { saveCfg(); updateHomeLinks(); logOk("配置已保存到本机"); };
     $("btnClear").onclick = clearCfg;
+    $("btnPing").onclick = () => pingService(false);
+    $("runnerTabs").onclick = (e) => {
+      const btn = e.target.closest("button[data-runner]");
+      if (!btn) return;
+      setRunner(btn.dataset.runner);
+      saveCfg();
+      updateHomeLinks();
+    };
+    $("apiBase").addEventListener("change", () => {
+      saveCfg();
+      if ($("apiBase").value.trim()) { $("apiState").textContent = "正在检查…"; pingService(true); }
+      else markApiMissing();
+    });
     $("btnRun").onclick = run;
     $("btnClean").onclick = cleanInbox;
 
@@ -688,8 +887,9 @@
 
   initCfg();
   bind();
-  logInfo("页面已就绪：填写仓库与 token → 选文件 → 开始转换");
-  log("转换在 GitHub Actions 上执行，浏览器只负责上传与取回结果");
+  logInfo("页面已就绪：拖入文件 → 开始转换（公开服务模式不需要任何 token）");
+  log("公开服务模式：文件直接发往右上角配置的转换服务，不经过 GitHub");
+  log("没有服务地址？当前页仍可切换到 GitHub Actions 模式，用你自己的 token 跑");
 })();
 </script>
 </body>

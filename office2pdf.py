@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import pathlib
 import os
 import re
 import shutil
@@ -544,9 +545,14 @@ def convert_text(soffice: str, src: str, outdir: str, timeout: int | None) -> st
     """
     tmp = tempfile.mkdtemp(prefix="office2pdf_")
     try:
+        # 每个进程用独立的 LibreOffice 用户配置目录：
+        # 并发调用时若共用 ~/.config/libreoffice，第二个实例会因为 profile 被占用而静默失败。
+        profile = os.path.join(tmp, "lo_profile")
+        os.makedirs(profile, exist_ok=True)
         run(
             [
                 soffice,
+                f"-env:UserInstallation={pathlib.Path(profile).as_uri()}",
                 "--headless",
                 "--norestore",
                 "--invisible",

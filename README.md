@@ -165,43 +165,91 @@ bash upgrade_libreoffice.sh --clean-only # 只清理
 
 ## 可视化批量转换（GitHub Pages）
 
-仓库自带一个静态页面 `docs/index.html`：拖进文件、选模式、点一下，就能在 GitHub Actions 的 Ubuntu 机器上用真实 LibreOffice 批量转换并下载 PDF。
+仓库自带静态页面 `docs/index.html`，提供**两条**运行路径，默认走第一条：
 
-**Pages 本身能不能直接转换？不能。** GitHub Pages 只发 HTML/CSS/JS，没有能执行 `soffice` 的后端进程，浏览器里也没有可用的 LibreOffice WASM 全功能构建——纯前端转 docx 排版必然走样。所以这里采用「Pages 当门面 + Actions 当后端」：
+| 模式 | 访客要做什么 | 适用 |
+|---|---|---|
+| **公开服务（默认）** | 什么都不用做——打开页面、拖文件、下载 | 给别人用、当公共小工具 |
+| GitHub Actions | 自己填一个 PAT（写权限在你仓库） | 只有自己用、不想额外部署服务 |
+
+**Pages 本身能不能直接转换？不能。** GitHub Pages 只发 HTML/CSS/JS，没有能执行 `soffice` 的进程；浏览器里也没有可用的 LibreOffice WASM 全功能构建，纯前端转 docx 排版必然走样（公式、图表、分页全崩）。所以只要要「真 LibreOffice 的保真度」，就必须有一台能跑 `soffice` 的机器。
+
+于是所有「不用 token」的方案都收敛到同一件事：**你自己部署一次服务，替所有访客承担那一次认证**。
 
 ```
-浏览器 (Pages 静态页)
-  │  ① 用你的 token 把文件 PUT 到仓库 inbox/<job>/
-  │  ② POST /dispatches 触发 convert 工作流
+访客浏览器 (Pages 静态页)
+  │  ① POST 文件（FormData，无任何凭据）
   ▼
-GitHub Actions (ubuntu-latest + 真实 LibreOffice)
-  │  ③ office2pdf.py 转换 → 提交 outbox/<job>/
+你的转换服务（server/ · Docker + LibreOffice）
+  │  ② 服务端转换
   ▼
-浏览器 ④ 轮询 outbox/<job>/_status.json → 逐个下载 PDF
+访客浏览器 ③ 直接拿回 PDF，自动下载
 ```
 
-### 启用步骤
+### 1. 部署转换服务（一次性，约 1 分钟）
 
-1. 推到 GitHub，默认分支为 `main`（`repository_dispatch` 只监听默认分支上的工作流）。
-2. **Settings → Pages → Build and deployment → Source 选 `GitHub Actions`**。
-3. 跑一次 `pages` 工作流（推送改动到 `docs/**` 时自动触发），得到 `https://<owner>.github.io/doc-converter/`。
-4. 打开页面填 `owner` / `repo` / `branch`（项目站点会自动猜）与 Personal Access Token：
-   - 经典 token：勾 `repo` + `workflow`
-   - 细粒度 token：`Contents: Read and write`、`Actions: Read and write`
-5. 选文件 → 选模式（文本型 / 图片型 + DPI）→ **开始转换**，通常 1–3 分钟。
+`server/` 是自包含的：`app.py` + `Dockerfile` + `requirements.txt` + Space 卡片 `README.md`，
+构建时镜像自己拉取最新 `office2pdf.py`，不用复制代码。
 
-### 限制（照实说）
+**A. Hugging Face Space（免费、无需信用卡、任何人可访问）**
 
-| 限制 | 数值 / 原因 |
-|---|---|
-| 单文件大小 | 页面硬限制 20 MB（Contents API 上限 100 MB，浏览器 base64 再膨胀 1.33 倍） |
-| 单次作业时长 | 60 分钟超时（`convert.yml` 的 `timeout-minutes`） |
-| 并发 | 同一 `job` 串行、不同 `job` 并行 |
-| 私有仓库 | 消耗 Actions 分钟数；Pages 可见性取决于套餐 |
-| 结果留存 | PDF 会提交进 `outbox/`，长期使用需定期清理旧作业目录 |
-| 安全 | token 只存在浏览器 localStorage，可一键清除；页面不经过第三方服务器 |
+1. 新建 Space → SDK 选 **Docker** → 模板选 Blank
+2. 把 `server/` 下的 4 个文件（`README.md`、`Dockerfile`、`app.py`、`requirements.txt`）传到 Space 根目录
+3. 等构建完成，拿到地址 `https://<user>-<space>.hf.space`
 
-要给「不用填 token 的人」用，就需要真后端：把 `office2pdf.py` 套一层 FastAPI，Dockerfile 里 `apt install libreoffice poppler-utils`，部署到 Hugging Face Spaces / Fly.io / Render，或自建 VPS 反代并加限流。
+**B. 自己 VPS / 任意 Docker 主机**
+
+```bash
+docker build -t office2pdf-api server/
+docker run -d --name office2pdf -p 7860:7860 --restart unless-stopped office2pdf-api
+# 前面挂 Caddy/Nginx 拿 HTTPS，并在反代层加限流
+```
+
+**C. 本机先试**
+
+```bash
+pip install -r server/requirements.txt
+uvicorn server.app:app --host 0.0.0.0 --port 8000
+curl http://127.0.0.1:8000/health
+```
+
+### 2. 把地址接进页面
+
+三种方式，任选其一：
+
+- 页面顶部「转换服务地址」填一次（存 localStorage，之后一直生效），点「检查连接」
+- 链接直接带参数：`https://<owner>.github.io/doc-converter/?api=https://your-space.hf.space`
+- 部署者写死在 `docs/index.html` 的 `const DEFAULT_API = "";`，访客打开即用
+
+之后任何人打开页面就能拖文件转换，**不用 GitHub 账号、不用 token**，文件只发往你自己这台服务。
+
+### 3. Pages 发布
+
+推到 GitHub → **Settings → Pages → Source 选 `GitHub Actions`** → 跑一次 `pages` 工作流，
+得到 `https://<owner>.github.io/doc-converter/`。（推送改动到 `docs/**` 时会自动重新部署。）
+
+### 限额（`server/` 的环境变量）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `MAX_FILE_MB` | 40 | 单文件上限，公开部署建议 20 |
+| `MAX_CONCURRENCY` | 2 | 同时转换数，超出排队（LibreOffice 很吃内存） |
+| `CONVERT_TIMEOUT` | 600 | 单文件超时（秒） |
+| `ALLOWED_ORIGINS` | `*` | CORS 允许来源，可收紧到你的 Pages 域名 |
+
+服务端对每个请求用独立临时目录、独立 LibreOffice profile（并发安全），响应结束即清理；
+文件名白名单化，拒绝路径穿越；只接受 `office2pdf.py` 支持的扩展名。
+
+### Actions 模式（备用）
+
+不开服务也能用，代价是使用者得自备 token：页面把文件提交到仓库 `inbox/<job>/` → 触发
+`convert` 工作流 → Actions 里转换并提交到 `outbox/<job>/` → 页面轮询 `_status.json` 后下载。
+
+- 单文件 20 MB（Contents API + base64 膨胀）
+- 单作业 60 分钟超时
+- token 需要 `repo` + `workflow`（经典）或 `Contents: RW` + `Actions: R`（细粒度）
+
+这条路**不适合当公共入口**：任何拿到 token 的人都能改写你的仓库。所以它只是备用，不是默认。
 
 ## 目录结构
 
@@ -210,7 +258,8 @@ doc-converter/
 ├── doc2htmlpdf.py         # 主工具：md/office → html/pdf
 ├── office2pdf.py          # Office/MD/PDF → PDF（含图片型、CLI 输出渲染）
 ├── upgrade_libreoffice.sh # LibreOffice 升级脚本
-├── docs/index.html        # GitHub Pages 可视化批量转换页面
+├── docs/index.html        # GitHub Pages 可视化批量转换页面（公开服务 / Actions 双模式）
+├── server/                # 公开转换服务（FastAPI + Dockerfile，可直接传成 HF Space）
 ├── .github/workflows/
 │   ├── pages.yml          # 发布 docs/ 到 Pages
 │   └── convert.yml        # Actions 后端：装 LibreOffice 并批量转换
