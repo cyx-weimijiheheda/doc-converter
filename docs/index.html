@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Office2PDF · 可视化批量转换</title>
-<meta name="description" content="把 Word / PPT / Excel / Markdown / PDF 批量转换成 PDF，纯静态页面 + GitHub Actions 后端。" />
+<meta name="description" content="把 Word / PPT / Excel / Markdown / PDF 批量转换成 PDF。" />
 <style>
   :root {
     --bg: #0d1117;
@@ -133,64 +133,20 @@
 </header>
 
 <main>
-  <!-- 1. 运行方式 -->
   <section class="card">
-    <h2>1 · 运行方式</h2>
-    <div class="modes" id="runnerTabs">
-      <button data-runner="public" class="active">公开服务（推荐 · 无需 token）</button>
-      <button data-runner="actions">GitHub Actions（需自己的 token）</button>
-    </div>
-
-    <div id="panelPublic" style="margin-top:14px">
-      <label class="field"><span>转换服务地址</span>
-        <input id="apiBase" type="text" placeholder="https://your-space.hf.space" autocomplete="off" />
-      </label>
-      <div class="row-inline" style="margin-top:12px">
-        <button class="ghost" id="btnPing">检查连接</button>
-        <span class="hint" id="apiState">填好后所有访客零配置直接用</span>
-      </div>
-      <div class="hint">
-        这就是为「让所有人都能用」准备的那条路：把 <code>server/</code> 部署成一次（Docker / Hugging Face Space / 自己的 VPS），
-        之后任何人打开本页拖文件即可转换——<b>不用 GitHub 账号，不用 token</b>，文件也只发往你自己部署的这台服务。
-        地址会存进本机 localStorage，也可用 <code>?api=</code> 参数直接带过来。
-      </div>
-    </div>
-
-    <div id="panelActions" class="hidden" style="margin-top:14px">
-      <div class="grid">
-        <label class="field"><span>仓库所有者 owner</span>
-          <input id="owner" type="text" placeholder="your-name" autocomplete="off" />
-        </label>
-        <label class="field"><span>仓库名 repo</span>
-          <input id="repo" type="text" placeholder="doc-converter" autocomplete="off" />
-        </label>
-        <label class="field"><span>分支 branch</span>
-          <input id="branch" type="text" value="main" autocomplete="off" />
-        </label>
-        <label class="field"><span>Personal Access Token</span>
-          <input id="token" type="password" placeholder="ghp_… / github_pat_…" autocomplete="off" />
-        </label>
-      </div>
-      <div class="row-inline" style="margin-top:12px">
-        <button class="ghost" id="btnSave">保存配置到本机</button>
-        <button class="ghost" id="btnClear">清除本地配置</button>
-        <span class="hint" id="cfgState"></span>
-      </div>
-      <div class="hint">
-        这条路不用部署服务，但每个使用者都得自备 token（写权限在你仓库的 <code>inbox/</code>，所以不适合当公共入口）。
-        Token 权限：经典 token 勾 <code>repo</code> + <code>workflow</code>；细粒度 token 给
-        <code>Contents: Read and write</code> + <code>Actions: Read and write</code>。
-      </div>
-    </div>
+    <h2>服务状态</h2>
+    <div class="row-inline"><button class="ghost" id="btnPing">检查连接</button>
+      <span class="hint" id="apiState">正在连接转换服务…</span></div>
+    <div class="hint">文件会上传至转换服务处理，转换完成后返回 PDF。请勿上传不愿交由服务处理的文件。</div>
   </section>
 
   <!-- 2. 文件与参数 -->
   <section class="card">
-    <h2>2 · 选择文件</h2>
+    <h2>1 · 选择文件</h2>
     <div id="drop">
       <div><strong>点击选择</strong> 或把文件拖到这里</div>
       <div class="sub">支持 .doc .docx .odt .rtf .ppt .pptx .odp .xls .xlsx .ods .csv .md .pdf — 可多选</div>
-      <div class="sub">单文件上限以服务端配置为准（默认 40 MB），Actions 模式为 20 MB</div>
+      <div class="sub">单文件最大 4 MiB；输出 PDF 最大 4 MiB</div>
     </div>
     <input id="picker" type="file" multiple class="hidden"
            accept=".doc,.docx,.odt,.rtf,.ppt,.pptx,.odp,.xls,.xlsx,.ods,.csv,.md,.markdown,.pdf" />
@@ -214,19 +170,18 @@
 
     <div class="actions">
       <button class="primary" id="btnRun" disabled>开始转换</button>
-      <button class="ghost" id="btnClean" disabled>删除云端输入文件</button>
       <span class="hint" id="runState">选择文件后即可开始</span>
     </div>
     <div class="bar" id="bar"><i></i></div>
     <div class="note" id="flowNote">
-      <b>流程（公开服务）：</b>文件直接 POST 到你部署的转换服务 → 服务端 LibreOffice 转成 PDF → 浏览器拿回 PDF 并自动下载。
+      <b>流程（公开服务）：</b>文件上传至转换服务 → 转成 PDF → 浏览器下载结果。
       不经过 GitHub，不用登录。
     </div>
   </section>
 
   <!-- 3. 日志与结果 -->
   <section class="card">
-    <h2>3 · 进度</h2>
+    <h2>2 · 进度</h2>
     <div id="log"></div>
     <div id="resultWrap" class="hidden" style="margin-top:18px">
       <div class="row-inline" style="justify-content:space-between">
@@ -242,8 +197,8 @@
 </main>
 
 <footer>
-  Office2PDF · 页面托管于 GitHub Pages，转换执行于 GitHub Actions。私有仓库需注意 Actions 分钟数消耗；
-  单次作业超过 60 分钟会被中断。<a id="repoHome" href="#" target="_blank" rel="noopener">项目主页 ↗</a>
+  Office2PDF · 页面托管于 GitHub Pages，转换由 Vercel 服务执行。
+  <a id="repoHome" href="https://github.com/cyx-weimijiheheda/doc-converter" target="_blank" rel="noopener">项目主页 ↗</a>
 </footer>
 
 <script>
@@ -282,103 +237,11 @@
     bar.querySelector("i").style.width = Math.max(0, Math.min(100, pct)) + "%";
   }
 
-  // ------------------------------------------------------- 配置持久化
-  const CFG_KEY = "office2pdf.cfg.v2";
-  // 部署者可以直接把默认服务地址写在这里，访客打开即用
-  const DEFAULT_API = "";
-  const state = { files: [], mode: "text", runner: "public", job: null, busy: false, runId: null, maxFileMB: 20 };
-
-  function readCfg() {
-    try { return JSON.parse(localStorage.getItem(CFG_KEY) || "{}"); } catch { return {}; }
-  }
-  function saveCfg() {
-    localStorage.setItem(CFG_KEY, JSON.stringify({
-      runner: state.runner,
-      apiBase: $("apiBase").value.trim(),
-      owner: $("owner").value.trim(),
-      repo: $("repo").value.trim(),
-      branch: $("branch").value.trim() || "main",
-      token: $("token").value.trim(),
-    }));
-    $("cfgState").textContent = "已保存到本机";
-  }
-  function clearCfg() {
-    localStorage.removeItem(CFG_KEY);
-    $("apiBase").value = "";
-    $("owner").value = ""; $("repo").value = ""; $("branch").value = "main"; $("token").value = "";
-    $("cfgState").textContent = "本地配置已清除";
-    $("apiState").textContent = "配置已清除";
-  }
-  function cfg() {
-    return {
-      apiBase: $("apiBase").value.trim().replace(/\/+$/, ""),
-      owner: $("owner").value.trim(),
-      repo: $("repo").value.trim(),
-      branch: $("branch").value.trim() || "main",
-      token: $("token").value.trim(),
-    };
-  }
-  function detectRepo() {
-    const host = location.hostname;
-    const seg = location.pathname.split("/").filter(Boolean);
-    if (/\.github\.io$/i.test(host)) {
-      const owner = host.split(".")[0];
-      return { owner, repo: seg.length ? seg[0] : `${owner}.github.io` };
-    }
-    return null;
-  }
-  function initCfg() {
-    const c = readCfg();
-    const auto = detectRepo() || {};
-    const fromQuery = new URLSearchParams(location.search).get("api") || "";
-    $("apiBase").value = fromQuery || c.apiBase || DEFAULT_API || "";
-    $("owner").value = c.owner || auto.owner || "";
-    $("repo").value = c.repo || auto.repo || "";
-    $("branch").value = c.branch || "main";
-    $("token").value = c.token || "";
-    $("cfgState").textContent = c.token ? "已从本机载入配置" : "尚未保存配置";
-    setRunner(c.runner === "actions" ? "actions" : "public");
-    updateHomeLinks();
-    if ($("apiBase").value) {
-      $("apiState").textContent = "已配置，正在检查…";
-      pingService(true);
-    } else {
-      markApiMissing();
-    }
-  }
-  function updateHomeLinks() {
-    const c = cfg();
-    if (c.owner && c.repo) {
-      $("repoHome").href = `https://github.com/${c.owner}/${c.repo}`;
-    }
-  }
-  function setRunner(runner) {
-    state.runner = runner;
-    const isPublic = runner === "public";
-    $("panelPublic").classList.toggle("hidden", !isPublic);
-    $("panelActions").classList.toggle("hidden", isPublic);
-    [...$("runnerTabs").querySelectorAll("button")].forEach((b) =>
-      b.classList.toggle("active", b.dataset.runner === runner));
-    $("btnClean").classList.toggle("hidden", isPublic);
-    $("flowNote").innerHTML = isPublic
-      ? "<b>流程（公开服务）：</b>文件直接 POST 到你部署的转换服务 → 服务端 LibreOffice 转成 PDF → 浏览器拿回 PDF 并自动下载。不经过 GitHub，不用登录。"
-      : "<b>流程（Actions）：</b>浏览器用你的 token 把文件提交到仓库的 <code>inbox/&lt;job&gt;/</code> → 触发 <code>convert</code> 工作流 → Actions 里转成 PDF 提交到 <code>outbox/&lt;job&gt;/</code> → 页面轮询完成后下载。一次通常 1–3 分钟。";
-    renderFiles();
-  }
-
-  // --------------------------------------------------- 公开服务（无 token）
-  function serviceBase() {
-    const b = $("apiBase").value.trim().replace(/\/+$/, "");
-    if (!b) throw new Error("还没填转换服务地址：先用 server/ 部署一个，地址填到上面（详见 README）");
-    return b;
-  }
-  function markApiMissing() {
-    const repo = cfg().owner && cfg().repo ? `${cfg().owner}/${cfg().repo}` : "cyx-weimijiheheda/doc-converter";
-    $("apiState").style.color = "var(--warn)";
-    $("apiState").innerHTML =
-      '⚠ 还没配置服务地址 —— 先部署 <code>server/</code>（约 1 分钟），' +
-      `<a href="https://github.com/${repo}#可视化批量转换github-pages" target="_blank" rel="noopener">看部署说明</a>`;
-  }
+  const DEFAULT_API = "https://doc-converter-xi.vercel.app";
+  const state = { files: [], mode: "text", busy: false, maxFileMB: 4 };
+  // 清理旧版保存的 token 和服务配置。
+  try { localStorage.removeItem("office2pdf.cfg.v2"); } catch (_) { /* 可在无存储权限的浏览器中使用 */ }
+  function serviceBase() { return DEFAULT_API; }
   async function pingService(silent = false) {
     const label = $("apiState");
     try {
@@ -423,7 +286,6 @@
     state.busy = true;
     $("btnRun").disabled = true;
     $("resultWrap").classList.add("hidden");
-    saveCfg();
     const total = state.files.length;
     logInfo(`公开服务模式：${total} 个文件 · ${state.mode === "image" ? "图片型 dpi=" + $("dpi").value : "文本型"}`);
     setBar(1);
@@ -503,48 +365,6 @@
     }
   }
 
-  // --------------------------------------------------------- GitHub API
-  function base() {
-    const c = cfg();
-    if (!c.owner || !c.repo) throw new Error("请先填写 owner 与 repo");
-    return `https://api.github.com/repos/${c.owner}/${c.repo}`;
-  }
-  function encPath(p) {
-    return p.split("/").map(encodeURIComponent).join("/");
-  }
-  async function gh(path, { method = "GET", body, raw = false, params } = {}) {
-    const c = cfg();
-    if (!c.token) throw new Error("缺少 Personal Access Token");
-    let url = base() + path;
-    if (params) {
-      const q = new URLSearchParams(params).toString();
-      url += (url.includes("?") ? "&" : "?") + q;
-    }
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${c.token}`,
-        Accept: raw ? "application/vnd.github.raw" : "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      let detail = "";
-      try { detail = (await res.json()).message || ""; } catch { /* ignore */ }
-      const hint = res.status === 401 ? "token 无效或已过期"
-        : res.status === 403 ? "权限不足或触发速率限制"
-        : res.status === 404 ? "仓库/路径不存在，或 token 无该仓库权限"
-        : res.status === 422 ? "请求内容被拒绝（文件可能过大或已存在）"
-        : "";
-      throw new Error(`GitHub ${res.status} ${method} ${path} — ${detail || hint || "请求失败"}`);
-    }
-    // repository_dispatch 等接口返回 204 No Content，不能直接 res.json()
-    if (raw) return res;
-    if (res.status === 204) return null;
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
-  }
   // ------------------------------------------------------------ 工具
   function humanSize(n) {
     if (!n && n !== 0) return "—";
@@ -553,29 +373,6 @@
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
     return (i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + u[i];
   }
-  function sanitize(name) {
-    return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "_").slice(-120);
-  }
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const s = String(reader.result);
-        resolve(s.slice(s.indexOf(",") + 1));
-      };
-      reader.onerror = () => reject(new Error("读取文件失败：" + file.name));
-      reader.readAsDataURL(file);
-    });
-  }
-  function newJobId() {
-    const d = new Date();
-    const p = (n) => String(n).padStart(2, "0");
-    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-    const rnd = Math.random().toString(36).slice(2, 6);
-    return `${stamp}-${rnd}`;
-  }
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
   // ------------------------------------------------------------ 文件列表
   function renderFiles() {
     const ul = $("fileList");
@@ -604,111 +401,12 @@
     const allowed = /\.(docx?|odt|rtf|pptx?|odp|xlsx?|ods|csv|md|markdown|pdf)$/i;
     for (const f of list) {
       if (!allowed.test(f.name)) { logWarn(`跳过不支持的文件：${f.name}`); continue; }
-      const limitMB = state.runner === "public" ? (state.maxFileMB || 40) : 20;
+      const limitMB = state.maxFileMB || 4;
       if (f.size > limitMB * 1024 * 1024) { logWarn(`跳过超过 ${limitMB} MB 的文件：${f.name}（${humanSize(f.size)}）`); continue; }
       if (state.files.some((x) => x.name === f.name && x.size === f.size)) continue;
       state.files.push(f);
     }
     renderFiles();
-  }
-
-  // ------------------------------------------------------------- 主流程
-  async function uploadAll(job) {
-    let done = 0;
-    for (const f of state.files) {
-      const path = `inbox/${job}/${sanitize(f.name)}`;
-      const content = await fileToBase64(f);
-      let sha = null;
-      try {
-        const exists = await gh(`/contents/${encPath(path)}`, { params: { ref: cfg().branch } });
-        sha = exists.sha;
-      } catch (e) { /* 不存在就新建 */ }
-      await gh(`/contents/${encPath(path)}`, {
-        method: "PUT",
-        body: {
-          message: `inbox: ${job} / ${f.name}`,
-          content,
-          branch: cfg().branch,
-          ...(sha ? { sha } : {}),
-        },
-      });
-      done++;
-      setBar((done / state.files.length) * 40);
-      logOk(`已上传 ${f.name}（${humanSize(f.size)}）`);
-    }
-  }
-
-  async function dispatch(job) {
-    await gh("/dispatches", {
-      method: "POST",
-      body: {
-        event_type: "convert",
-        client_payload: {
-          job,
-          mode: state.mode,
-          dpi: $("dpi").value,
-          branch: cfg().branch,
-          count: state.files.length,
-        },
-      },
-    });
-    logInfo("已触发 convert 工作流");
-  }
-
-  async function waitRun(since) {
-    const deadline = Date.now() + 8 * 60 * 1000;
-    let run = null;
-    while (Date.now() < deadline) {
-      await sleep(4000);
-      const data = await gh("/actions/runs", { params: { event: "repository_dispatch", per_page: "10" } });
-      const runs = data.workflow_runs || [];
-      const fresh = runs.filter((r) => new Date(r.created_at).getTime() >= since - 5000);
-      if (fresh.length) {
-        run = fresh.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-        break;
-      }
-      log("等待工作流出现在队列中…");
-    }
-    if (!run) throw new Error("6 分钟内没等到工作流启动，请到 Actions 页面手动确认");
-    state.runId = run.id;
-    logInfo(`工作流已启动：run #${run.run_number}`);
-
-    const deadline2 = Date.now() + 60 * 60 * 1000;
-    while (Date.now() < deadline2) {
-      await sleep(5000);
-      const r = await gh(`/actions/runs/${run.id}`);
-      setBar(40);
-      if (r.status === "completed") {
-        if (r.conclusion !== "success") {
-          logWarn(`工作流结论：${r.conclusion}（部分文件可能失败，仍尝试读取结果）`);
-        } else {
-          logOk("工作流执行完成");
-        }
-        return r;
-      }
-      log(`工作流状态：${r.status} …`);
-    }
-    throw new Error("等待超时（60 分钟）");
-  }
-
-  async function fetchStatus(job) {
-    const res = await gh(`/contents/${encPath(`outbox/${job}/_status.json`)}`, {
-      raw: true,
-      params: { ref: cfg().branch, t: String(Date.now()) },
-    });
-    return res.json();
-  }
-
-  async function waitStatus(job) {
-    const deadline = Date.now() + 3 * 60 * 1000;
-    while (Date.now() < deadline) {
-      try {
-        const st = await fetchStatus(job);
-        if (st && st.state === "done") return st;
-      } catch (e) { /* 文件还没提交上来 */ }
-      await sleep(4000);
-    }
-    return null;
   }
 
   function saveBlob(blob, name) {
@@ -719,147 +417,10 @@
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
 
-  async function downloadFile(job, name) {
-    const res = await gh(`/contents/${encPath(`outbox/${job}/${name}`)}`, {
-      raw: true,
-      params: { ref: cfg().branch },
-    });
-    saveBlob(await res.blob(), name);
-  }
-
-  function renderResults(job, st) {
-    const wrap = $("resultWrap");
-    const body = $("resultBody");
-    body.innerHTML = "";
-    wrap.classList.remove("hidden");
-    const c = cfg();
-    $("repoLink").href = `https://github.com/${c.owner}/${c.repo}/tree/${c.branch}/outbox/${job}`;
-    $("repoLink").classList.remove("hidden");
-
-    const files = (st && st.files) || [];
-    if (!files.length) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="5" style="color:#8b9bb0">没有拿到结果清单，请到 Actions 或仓库 outbox 目录查看。</td>`;
-      body.appendChild(tr);
-      return;
-    }
-    for (const f of files) {
-      const tr = document.createElement("tr");
-      const pill = f.status === "ok" ? "ok" : f.status === "skip" ? "skip" : "fail";
-      const label = f.status === "ok" ? "成功" : f.status === "skip" ? "跳过" : "失败";
-      const tdName = document.createElement("td");
-      tdName.textContent = f.input;
-      const tdStatus = document.createElement("td");
-      tdStatus.innerHTML = `<span class="pill ${pill}">${label}</span>`;
-      if (f.status !== "ok" && f.note) tdStatus.title = f.note;
-      const tdPages = document.createElement("td");
-      tdPages.className = "num"; tdPages.textContent = f.pages ? f.pages + " 页" : "—";
-      const tdSize = document.createElement("td");
-      tdSize.className = "num"; tdSize.textContent = humanSize(f.size);
-      const tdDl = document.createElement("td");
-      if (f.status === "ok" && f.output) {
-        const btn = document.createElement("button");
-        btn.className = "ghost";
-        btn.style.padding = "4px 10px";
-        btn.textContent = "下载 PDF";
-        btn.onclick = async () => {
-          btn.disabled = true; btn.textContent = "下载中…";
-          try { await downloadFile(job, f.output); btn.textContent = "再下一次"; }
-          catch (e) { logErr(String(e.message || e)); btn.textContent = "下载 PDF"; }
-          finally { btn.disabled = false; }
-        };
-        tdDl.appendChild(btn);
-      } else {
-        tdDl.innerHTML = `<span style="color:#8b9bb0">—</span>`;
-      }
-      tr.append(tdName, tdStatus, tdPages, tdSize, tdDl);
-      body.appendChild(tr);
-    }
-  }
-
-  async function run() {
-    if (state.busy) return;
-    if (state.runner === "public") return runPublic();
-    const c = cfg();
-    if (!c.owner || !c.repo) { logErr("请填写 owner 与 repo"); return; }
-    if (!c.token) { logErr("请填写 Personal Access Token"); return; }
-    if (!state.files.length) { logErr("请先选择文件"); return; }
-
-    state.busy = true;
-    $("btnRun").disabled = true;
-    $("btnClean").disabled = true;
-    $("resultWrap").classList.add("hidden");
-    saveCfg();
-    const job = newJobId();
-    state.job = job;
-    logInfo(`作业 ${job} 开始（模式 ${state.mode === "image" ? "图片型" : "文本型"}${state.mode === "image" ? "，dpi=" + $("dpi").value : ""}）`);
-    setBar(2);
-
-    try {
-      await uploadAll(job);
-      const since = Date.now();
-      await dispatch(job);
-      setBar(45);
-      await waitRun(since);
-      setBar(80);
-      const st = await waitStatus(job);
-      setBar(100);
-      if (st) {
-        logOk(`转换完成：成功 ${st.ok} · 跳过 ${st.skipped} · 失败 ${st.failed}`);
-        renderResults(job, st);
-        $("btnClean").disabled = false;
-      } else {
-        logWarn("没读到 _status.json，尝试直接列出 outbox 目录");
-        renderResults(job, null);
-      }
-    } catch (e) {
-      logErr(String(e.message || e));
-    } finally {
-      state.busy = false;
-      $("btnRun").disabled = state.files.length === 0;
-      setTimeout(() => setBar(null), 1200);
-    }
-  }
-
-  async function cleanInbox() {
-    const job = state.job;
-    if (!job) return;
-    const c = cfg();
-    log("删除云端输入文件…");
-    try {
-      const items = await gh(`/contents/${encPath(`inbox/${job}`)}`, { params: { ref: c.branch } });
-      for (const it of items) {
-        await gh(`/contents/${encPath(it.path)}`, {
-          method: "DELETE",
-          body: { message: `cleanup inbox: ${job}`, sha: it.sha, branch: c.branch },
-        });
-      }
-      logOk(`已删除 ${items.length} 个云端输入文件`);
-      $("btnClean").disabled = true;
-    } catch (e) {
-      logErr("清理失败：" + (e.message || e));
-    }
-  }
-
   // -------------------------------------------------------------- 绑定
   function bind() {
-    $("btnSave").onclick = () => { saveCfg(); updateHomeLinks(); logOk("配置已保存到本机"); };
-    $("btnClear").onclick = clearCfg;
     $("btnPing").onclick = () => pingService(false);
-    $("runnerTabs").onclick = (e) => {
-      const btn = e.target.closest("button[data-runner]");
-      if (!btn) return;
-      setRunner(btn.dataset.runner);
-      saveCfg();
-      updateHomeLinks();
-    };
-    $("apiBase").addEventListener("change", () => {
-      saveCfg();
-      if ($("apiBase").value.trim()) { $("apiState").textContent = "正在检查…"; pingService(true); }
-      else markApiMissing();
-    });
-    $("btnRun").onclick = run;
-    $("btnClean").onclick = cleanInbox;
+    $("btnRun").onclick = runPublic;
 
     const drop = $("drop");
     const picker = $("picker");
@@ -880,16 +441,12 @@
       $("dpi").disabled = state.mode !== "image";
     };
     $("dpi").disabled = true;
-    ["owner", "repo", "branch"].forEach((id) => {
-      $(id).addEventListener("change", updateHomeLinks);
-    });
   }
 
-  initCfg();
+  pingService(true);
   bind();
   logInfo("页面已就绪：拖入文件 → 开始转换（公开服务模式不需要任何 token）");
-  log("公开服务模式：文件直接发往右上角配置的转换服务，不经过 GitHub");
-  log("没有服务地址？当前页仍可切换到 GitHub Actions 模式，用你自己的 token 跑");
+  log("文件将发送至转换服务，处理完成后下载 PDF。");
 })();
 </script>
 </body>
