@@ -5,6 +5,7 @@ ENV PYTHONUNBUFFERED=1 HOME=/tmp MAX_FILE_MB=4 MAX_OUTPUT_MB=4 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer libreoffice-calc libreoffice-impress poppler-utils \
+    libpango-1.0-0 libpangoft2-1.0-0 \
     fonts-noto-cjk fonts-noto-cjk-extra fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 

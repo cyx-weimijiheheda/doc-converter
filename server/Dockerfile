@@ -17,7 +17,7 @@ ENV PYTHONUNBUFFERED=1 \
 # LibreOffice（转换引擎）+ poppler（图片型 PDF）+ 中文字体（避免方框）
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-writer libreoffice-calc libreoffice-impress \
-        poppler-utils \
+        poppler-utils libpango-1.0-0 libpangoft2-1.0-0 \
         fonts-noto-cjk fonts-noto-cjk-extra fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
