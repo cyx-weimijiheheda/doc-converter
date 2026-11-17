@@ -41,6 +41,7 @@ if str(ROOT) not in sys.path:
 import office2pdf  # noqa: E402
 
 MAX_FILE_MB = float(os.getenv("MAX_FILE_MB", "40"))
+MAX_OUTPUT_MB = float(os.getenv("MAX_OUTPUT_MB", "0"))
 MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "2")))
 CONVERT_TIMEOUT = int(os.getenv("CONVERT_TIMEOUT", "600"))
 ALLOWED = office2pdf.ALL_EXTS
@@ -176,6 +177,9 @@ async def convert(
         raise HTTPException(500, f"内部错误：{type(e).__name__}: {e}") from e
 
     elapsed = time.monotonic() - t0
+    if MAX_OUTPUT_MB > 0 and out_path.stat().st_size > MAX_OUTPUT_MB * 1024 * 1024:
+        cleanup()
+        raise HTTPException(413, f"转换结果超过 {MAX_OUTPUT_MB:g} MB 上限，请缩小文件或降低 DPI")
     download_name = Path(_safe_name(out_path.name)).name
     headers = {
         "X-Convert-Seconds": f"{elapsed:.2f}",

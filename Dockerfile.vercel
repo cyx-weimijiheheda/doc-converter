@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 HOME=/tmp MAX_FILE_MB=4 MAX_OUTPUT_MB=4 \
+    MAX_CONCURRENCY=2 CONVERT_TIMEOUT=240
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer libreoffice-calc libreoffice-impress poppler-utils \
+    fonts-noto-cjk fonts-noto-cjk-extra fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY server/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY server/app.py office2pdf.py ./
+
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-3000} --timeout-keep-alive 75"]

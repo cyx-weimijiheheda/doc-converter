@@ -607,18 +607,8 @@ def convert_markdown(src: str, outdir: str, *, overwrite: bool, verbose: bool) -
     if not callable(callable_target):
         raise ConvertError("已安装 md2pdf，但未找到兼容的调用入口。")
 
-    for kwargs in (
-        {"file_path": src, "output_file": final_pdf},
-        {"input_path": src, "output_path": final_pdf},
-    ):
-        try:
-            callable_target(**kwargs)
-            return final_pdf
-        except TypeError:
-            pass
-
     try:
-        callable_target(src, final_pdf)
+        callable_target(pdf=pathlib.Path(final_pdf), md=pathlib.Path(src))
         return final_pdf
     except TypeError as e:
         raise ConvertError("md2pdf 调用失败：API 与当前版本不兼容。") from e
@@ -736,7 +726,12 @@ def convert_one(
         ), ""
 
     if ext in MARKDOWN_EXTS:
-        return convert_markdown(src, outdir, overwrite=overwrite, verbose=verbose), ""
+        if not as_image:
+            return convert_markdown(src, outdir, overwrite=overwrite, verbose=verbose), ""
+        with tempfile.TemporaryDirectory(prefix="office2pdf_md_") as tmp:
+            text_pdf = convert_markdown(src, tmp, overwrite=True, verbose=verbose)
+            return pdf_to_image_pdf(text_pdf, outdir, dpi=dpi, img_format=img_format,
+                                    overwrite=overwrite, verbose=verbose), ""
 
     os.makedirs(outdir, exist_ok=True)
     if verbose:

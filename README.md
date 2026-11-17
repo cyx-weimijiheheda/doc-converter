@@ -188,19 +188,18 @@ bash upgrade_libreoffice.sh --clean-only # 只清理
 
 ### 1. 部署转换服务（一次性，约 1 分钟）
 
-`server/` 是自包含的：`app.py` + `Dockerfile` + `requirements.txt` + Space 卡片 `README.md`，
-构建时镜像自己拉取最新 `office2pdf.py`，不用复制代码。
+服务镜像使用 `server/` 中的配置以及仓库根目录的 `office2pdf.py`。
 
-**A. Hugging Face Space（免费、无需信用卡、任何人可访问）**
+**A. Hugging Face Space（Docker Space 的账号和费用要求以平台为准）**
 
 1. 新建 Space → SDK 选 **Docker** → 模板选 Blank
-2. 把 `server/` 下的 4 个文件（`README.md`、`Dockerfile`、`app.py`、`requirements.txt`）传到 Space 根目录
+2. 将 `server/README.md`、`server/Dockerfile` 和 `office2pdf.py` 放到 Space 根目录；将 `server/app.py` 和 `server/requirements.txt` 放到 Space 的 `server/` 目录
 3. 等构建完成，拿到地址 `https://<user>-<space>.hf.space`
 
 **B. 自己 VPS / 任意 Docker 主机**
 
 ```bash
-docker build -t office2pdf-api server/
+docker build -f server/Dockerfile -t office2pdf-api .
 docker run -d --name office2pdf -p 7860:7860 --restart unless-stopped office2pdf-api
 # 前面挂 Caddy/Nginx 拿 HTTPS，并在反代层加限流
 ```
